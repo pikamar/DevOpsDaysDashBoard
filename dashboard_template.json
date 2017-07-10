@@ -127,6 +127,7 @@
                                 "service docker start\n",
                                 "usermod -a -G docker ec2-user\n",
                                 "docker info\n",
+                                "export PATH=$PATH:/usr/local/bin/\n",
 
                                 "curl -L https://github.com/docker/compose/releases/download/1.13.0/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose\n",
                                 "chmod 774 /usr/local/bin/docker-compose\n",
