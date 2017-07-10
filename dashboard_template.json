@@ -1,0 +1,276 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Conditions": {
+        "ConditionElasticIPSet": {
+            "Fn::Not": [
+                {
+                    "Condition": "ConditionElasticIPUnset"
+                }
+            ]
+        },
+        "ConditionElasticIPUnset": {
+            "Fn::Equals": [
+                {
+                    "Ref": "ElasticIP"
+                },
+                ""
+            ]
+        }
+    },
+    "Description": "Free tier t2.micro",
+    "Mappings": {
+        "RegionMap": {
+            "eu-west-1": {
+                "AMI": "ami-d7b9a2b1"
+            },
+            "eu-west-2": {
+                "AMI": "ami-ed100689"
+            },
+            "us-east-1": {
+                "AMI": "ami-a4c7edb2"
+            }
+        }
+    },
+    "Outputs": {
+        "ReleaseNote": {
+            "Description": "This is your starting point, please copy this URL into your web browser.",
+            "Value": {
+                "Fn::Join": [
+                    "", [
+                        "http://", {
+                            "Fn::GetAtt": [
+                                "DemoEc2Instance",
+                                "PublicIp"
+                            ]
+                        },
+                        "/"
+                    ]
+                ]
+            }
+        }
+    },
+    "Parameters": {
+        "ClientName": {
+            "Default": "Mareks Pikalovs",
+            "Description": "Name of client.",
+            "Type": "String"
+        },
+        "ProjectGitRepositoryUrl": {
+            "Default": "https://github.com/pikamar/DevOpsDaysDashBoard.git",
+            "Description": "Git url on reference application.",
+            "Type": "String"
+        },
+        "ElasticIP": {
+            "Default": "",
+            "Description": "Allocation ID of the ElasticIP to be used for the Ec2 instance.",
+            "Type": "String"
+        },
+        "KeyName": {
+            "Default": "my_key",
+            "Description": "Key-pair name to use.",
+            "Type": "AWS::EC2::KeyPair::KeyName"
+        }
+    },
+    "Resources": {
+        "DemoEc2Instance": {
+            "Properties": {
+                "BlockDeviceMappings": [{
+                    "DeviceName": "/dev/xvda",
+                    "Ebs": {
+                        "DeleteOnTermination": "true",
+                        "VolumeSize": 30,
+                        "VolumeType": "gp2"
+                    }
+                }],
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap", {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMI"
+                    ]
+                },
+                "InstanceType": "t2.micro",
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "NetworkInterfaces": [{
+                    "AssociatePublicIpAddress": "true",
+                    "DeleteOnTermination": "true",
+                    "DeviceIndex": "0",
+                    "GroupSet": [{
+                        "Ref": "DemoSecurityGroup"
+                    }],
+                    "SubnetId": {
+                        "Ref": "PublicSubnet"
+                    }
+                }],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "Dashboard"
+                    },
+                    {
+                        "Key": "createdBy",
+                        "Value": {
+                            "Ref": "ClientName"
+                        }
+                    }
+                ],
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "", [
+                                "#!/bin/bash\n",
+                                "yum -y update\n",
+                                "yum -y install git docker\n",
+                                "service docker start\n",
+                                "usermod -a -G docker ec2-user\n",
+                                "docker info\n",
+
+                                "curl -L https://github.com/docker/compose/releases/download/1.13.0/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose\n",
+                                "chmod 774 /usr/local/bin/docker-compose\n",
+                                "chown root:ec2-user /usr/local/bin/docker-compose\n",
+
+                                "mkdir /usr/data\n",
+                                "chmod 774 /usr/data/\n",
+                                "chown root:ec2-user /usr/data/\n",
+
+                                "cd /usr/data/\n",
+                                "echo Current Dir\n",
+                                "echo `pwd`\n",
+                                "git clone ", {"Ref": "ProjectGitRepositoryUrl"}, "\n",
+                                "chown -R root:ec2-user DevOpsDaysDashBoard\n",
+                                "cd DevOpsDaysDashBoard\n",
+                                "docker run --rm -v \"$PWD\":/app -w /app iron/node:dev npm install\n",
+                                "docker-compose up -d\n",
+
+                                "curl -X PUT -H 'Content-Type:' --data-binary '{\"Status\" : \"SUCCESS\",",
+                                "\"Reason\" : \"Demo node is ready\",",
+                                "\"UniqueId\" : \"", {"Ref": "ClientName"}, "\",",
+                                "\"Data\" : \"Done\"}' ",
+                                "\"", {"Ref": "DemoWaitConditionHandle"}, "\"\n",
+                                "\n"
+                            ]
+                        ]
+                    }
+                }
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "DemoElasticIpAssociation": {
+            "Condition": "ConditionElasticIPSet",
+            "Properties": {
+                "AllocationId": {
+                    "Ref": "ElasticIP"
+                },
+                "InstanceId": {
+                    "Ref": "DemoEc2Instance"
+                }
+            },
+            "Type": "AWS::EC2::EIPAssociation"
+        },
+        "DemoSecurityGroup": {
+            "Properties": {
+                "GroupDescription": "Enabling access to all IPs and below listed ports",
+                "SecurityGroupIngress": [{
+                    "CidrIp": "0.0.0.0/0",
+                    "FromPort": "22",
+                    "IpProtocol": "tcp",
+                    "ToPort": "22"
+                }, {
+                    "CidrIp": "0.0.0.0/0",
+                    "FromPort": "80",
+                    "IpProtocol": "tcp",
+                    "ToPort": "80"
+                }, {
+                    "CidrIp": "0.0.0.0/0",
+                    "FromPort": "443",
+                    "IpProtocol": "tcp",
+                    "ToPort": "443"
+                }],
+                "VpcId": {
+                    "Ref": "Vpc"
+                }
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "PublicRouteDefault": {
+            "Properties": {
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "VpcInternetGateway"
+                },
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                }
+            },
+            "Type": "AWS::EC2::Route"
+        },
+        "PublicRouteTable": {
+            "Properties": {
+                "VpcId": {
+                    "Ref": "Vpc"
+                }
+            },
+            "Type": "AWS::EC2::RouteTable"
+        },
+        "PublicSubnet": {
+            "Properties": {
+                "CidrBlock": "10.0.1.0/24",
+                "VpcId": {
+                    "Ref": "Vpc"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "PublicSubnetPublicRouteTableAssoc": {
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                },
+                "SubnetId": {
+                    "Ref": "PublicSubnet"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "Vpc": {
+            "Properties": {
+                "CidrBlock": "10.0.0.0/16",
+                "EnableDnsHostnames": "true",
+                "EnableDnsSupport": "true"
+            },
+            "Type": "AWS::EC2::VPC"
+        },
+        "VpcGatewayAttachment": {
+            "Properties": {
+                "InternetGatewayId": {
+                    "Ref": "VpcInternetGateway"
+                },
+                "VpcId": {
+                    "Ref": "Vpc"
+                }
+            },
+            "Type": "AWS::EC2::VPCGatewayAttachment"
+        },
+        "VpcInternetGateway": {
+            "Type": "AWS::EC2::InternetGateway"
+        },
+        "DemoWaitConditionHandle": {
+            "Type": "AWS::CloudFormation::WaitConditionHandle",
+            "Properties": {}
+        },
+        "DemoWaitCondition": {
+            "Type": "AWS::CloudFormation::WaitCondition",
+            "DependsOn": "DemoEc2Instance",
+            "Properties": {
+                "Handle": {
+                    "Ref": "DemoWaitConditionHandle"
+                },
+                "Timeout": "1800"
+            }
+        }
+    }
+}
+
